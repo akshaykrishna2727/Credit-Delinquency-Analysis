@@ -1,0 +1,276 @@
+---
+title: "Credit Delinquency Analysis"
+date: "23/09/2021"
+output: pdf_document
+---
+
+##Question of Interest: What features can be most concerned to the target variable?
+
+1. __Data fetching__
+  + Reproducibility of the data
+  + Data distribution
+2. __Identifying missing values and outliers__
+  + Checking for NA values
+  + Checking for outliers based on the government norms
+  + Identification of negative trends in the data
+  + Distribution of age feature
+  + Trail and error methods to replace NA's for Monthly Income.
+3. __Visualizations__
+  + Visualization how different features affect the Age column
+  + Visualization how age affects the delinquency categories
+  + Binning of age values and plotting the count of delinquencies iwth age categories
+  + Determining the percentage of delinquency with age categories
+4. __Building a model__
+5. __Conclusion and Bias__
+
+## Github Link: 
+
+__1.1 The data has been fetched from the github repository of a user named "dengsiying" who had performed creditrisk analysis using the data published. This markdown can be used anywhere without any prerequisites since it is reproducible in any environment.__
+```{r}
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(data.table)
+
+fin_data_url <- "https://raw.githubusercontent.com/dengsiying/give-me-some-credit/master/Give%20me%20some%20credit/data/"
+filename <- c("cs-training.csv", "cs-test.csv")
+urls <- str_c(fin_data_url, filename)
+train_data <- read_csv(urls[1], show_col_types = FALSE, col_select = -c(1))
+test_data <- read_csv(urls[2], show_col_types = FALSE, col_select = -c(1))
+df_train <- as_tibble(train_data)
+
+df_train$SeriousDlqin2yrs <- factor(df_train$SeriousDlqin2yrs, levels=c("0","1"), labels=c("No","Yes"))
+```
+__1.2 Data distribution of Delinquency in 2 years for the training data__
+```{r}
+# Label distribution
+table(df_train$SeriousDlqin2yrs)
+```
+
+__2.1 Summing up the outliers present in the whole dataset would allow us to find the NA values easier__
+```{r}
+# Any NA's ?
+colSums(is.na(df_train))
+```
+
+***
+__2.2 Checking for outliers which is built upon a condition where age column has values less than 18 which also signifies that people who are under 18 would never be eligible for any credits or loans as per the USA government norms.__
+```{r}
+df_train[df_train['age'] < 18,]
+# There is one row that has age less than 18 - Ideal to remove , no NA for age
+df_train[, head(.SD, 3), by=DebtRatio]
+verifyDR <- df_train %>% 
+  arrange(desc(DebtRatio))
+```
+__It can be seen that there are no missing(NA) values and there is just one outlier whose affectiveness on the data is minute. Hence it can be removed to maintain a proper distribution.__
+
+***
+
+__2.3 We can see that top 14% of Debt Ratio is having NA's, 0's or 1's. There can be an assumption made that the data entered/recorded is incorrect for these ID's as Monthly Income is 1 while Debt Ratio is high which cannot make an association possible.__
+```{r}
+top14 <- df_train %>%
+  filter(DebtRatio>quantile(df_train$DebtRatio, probs = 0.86)) 
+  ggplot(top14, aes(x=DebtRatio, y=MonthlyIncome)) + 
+  geom_point()
+  crazy <- df_train[df_train$MonthlyIncome ==0,]
+```
+
+***
+
+__2.4 Using the below chunk we understand the distribution of the age feature.__
+```{r}
+## age is normally ditributed 
+  ggplot(df_train, aes(x=age)) +
+    geom_histogram(aes(y=..density..),      
+                   binwidth=5,
+                   colour="black", fill="white") + 
+    geom_density(alpha=.2, fill="#FF6666") 
+```
+__As it can be seen that age has been distributed normally after cleaning the feature and the data spread is mostly focused with one standard deviation.__ 
+
+***
+
+__2.5 Trail and error method to replace the monthly income  with mean of that specific feature if the values are missing or NA. If the data is accurate we wouldn't be replacing them. We also have segregated the monthly income based on the age.__
+```{r}
+## Trial and error method to handle NA's
+  test <- df_train %>%
+    group_by(age) %>%
+    mutate(
+      MonthlyIncome = ifelse(is.na(MonthlyIncome),mean(MonthlyIncome,na.rm=TRUE),MonthlyIncome)
+    )
+  test <- test[!is.na(test$MonthlyIncome),]
+
+## mean salary based on age
+  test <- df_train[!is.na(df_train$MonthlyIncome),]
+  working = test[(test['age'] >= 18) & (test['age'] <= 60),]
+  senior = test[(test['age'] > 60),]
+  working_income_mean = mean(working$MonthlyIncome)
+  
+  senior_income_mean = mean(senior$MonthlyIncome)
+  print(working_income_mean)
+  print(senior_income_mean)
+```
+__From the segregation we can see that senior income mean and working income mean is differed by insignificant amount which can conclude that monthly income of senior person could be either from jobs, pension, etc.. but not that they are jobless.__
+
+***
+
+__3.1 Visualization how different features affect the Age column.__
+```{r}
+  test %>%
+    ggplot(aes(age)) +
+    geom_histogram(binwidth = 0.5, color = "black",fill = "grey") +
+    labs(title = "Distribution of Age with Monthly Income",
+         x = "age",
+         y = "MonthlyIncome") +
+    theme_minimal() 
+  test %>%
+    ggplot(aes(age)) +
+    geom_histogram(binwidth = 0.5, color = "black",fill = "grey") +
+    labs(title = "Distribution of Age with Debt Ratio",
+         x = "age",
+         y = "DebtRatio") +
+    theme_minimal()
+  test %>%
+    ggplot(aes(age)) +
+    geom_histogram(binwidth = 1, color = "black",fill = "grey") +
+    labs(title = "Distribution of Age with Debt Ratio",
+         x = "age",
+         y = "SeriousDlqin2yrs") +
+    theme_minimal()
+```
+__It is evident that other features are normally distributed with Age which should describe that there's a good correlation between these features.__
+
+***
+
+__3.2 Visualization the delinquency with the age to check if greater or lesser the age then density of the delinquency points would vary or not.__
+```{r}
+ggplot(test, aes(x=as.factor(SeriousDlqin2yrs), y=age)) + 
+  geom_point() +
+  xlab("Delinquency") +
+  ylab("Age")
+```
+__We believe there are some outliers which can be noticed from the above graph but do not make the model inconsistent though hence they can be ignored. From the age 25, people have become delinquent as well as non-delinquent which cannot be distinguished with age feature alone.__
+
+***
+
+__3.3 Binning age values__
+```{r}
+b <- c(18, 30, 40, 50, 60, 70, 80, 90, Inf)
+names <- c("18-20", "20-30", "30-40", "40-50", "50-60", "60-70", "70-80", "80-90")
+
+test$age_cat <- cut(test$age, breaks = b, labels = names)
+
+ggplot(data=test, aes(x=age_cat, y=..count..)) + geom_bar(aes(fill = SeriousDlqin2yrs), position = "stack") + scale_colour_discrete("Delinquent?")
+```
+__People from age categories 30-40 and 40-50 seem to be more delinquent than other categories. This can also mean that other categories have not enough data to conclude the delinquency based on age.__
+
+***
+__3.4 Age categories in terms of percentages.__
+```{r}
+test %>%
+  group_by(age_cat,SeriousDlqin2yrs) %>%
+  tally() %>%
+  group_by(age_cat) %>%
+  mutate(x = n / sum(n)) %>%
+  ggplot() +
+  geom_col(aes(
+    x = factor(age_cat),
+    y = x,
+    fill = factor(SeriousDlqin2yrs)
+  ), position = "stack") +
+  xlab("Age Categories") +
+  ylab("Density")
+```
+__The above graph seems to be contradicting with the graph in 3.3 because the percentage of delinquents in more in 18-20 category when compared with 30-40 which cannot be true like said in the above graph. Data insufficiency could lead to such contradictory graphs.__
+
+***
+
+__3.5 Creating a new column combining together the number of times past the due since they all are equally weighed for the target variable.__
+```{r}
+test$NumberOfDependents[is.na(test$NumberOfDependents)] <- 0
+
+
+test$CombinedPastDue = test$`NumberOfTime30-59DaysPastDueNotWorse` + test$`NumberOfTime60-89DaysPastDueNotWorse` + test$NumberOfTimes90DaysLate
+
+test$CombinedCreditLoans = test$NumberOfOpenCreditLinesAndLoans + test$NumberRealEstateLoansOrLines
+
+drop <- c("X","NumberOfTime30-59DaysPastDueNotWorse","NumberOfTime60-89DaysPastDueNotWorse","NumberOfTimes90DaysLate")
+test = test[,!(names(test) %in% drop)]
+test$SeriousDlqin2yrs <- factor(test$SeriousDlqin2yrs)
+test <- na.omit(test)
+test <- test[test$MonthlyIncome!=1,]
+```
+__We have dropped the above 3 columns since we already combined them and also omit NA's along with any rows with monthly income not equal to 1 since it can never be a case in reality.__
+
+***
+
+__3.6 Below are some other visualizations to check the dependency and effectiveness of other features with the age categories.__
+```{r}
+test %>%
+  group_by(age_cat,NumberOfDependents) %>%
+  tally() %>%
+  group_by(age_cat) %>%
+  mutate(x = n / sum(n)) %>%
+  ggplot() +
+  geom_col(aes(
+    x = factor(age_cat),
+    y = x,
+    fill = factor(NumberOfDependents)
+  ), position = "dodge") +
+  xlab("Age Categories") +
+  scale_colour_discrete("# of Dependents")
+
+table(test$age_cat)
+
+test %>%
+  group_by(age_cat,CombinedCreditLoans) %>%
+  tally() %>%
+  group_by(age_cat) %>%
+  mutate(x = n / sum(n)) %>%
+  ggplot() +
+  geom_col(aes(
+    x = factor(age_cat),
+    y = x,
+    fill = factor(CombinedCreditLoans)
+  ), position = "stack") +
+  xlab("Age Categories") + 
+  scale_colour_discrete("# of Combined Credit Loans")
+```
+
+
+***
+
+__4.1 Building a generalized linear model by plotting an ROC curve for accuracy check.__
+```{r}
+library(ROCR)
+
+#split data 
+smp_size <- floor(0.75 * nrow(test))
+
+## set the seed to make your partition reproducible
+set.seed(123)
+train_ind <- sample(seq_len(nrow(test)), size = smp_size)
+
+train <- test[train_ind, ]
+testdata <- test[-train_ind, ]
+
+model <- glm( SeriousDlqin2yrs ~ RevolvingUtilizationOfUnsecuredLines +  CombinedPastDue + CombinedCreditLoans + NumberOfDependents + DebtRatio + age_cat, 
+              data = train,family=binomial)
+
+probabilities <- model %>% predict(testdata, type = "response")
+head(probabilities)
+
+predict <- ifelse(probabilities > 0.5, "1", "0") 
+
+ROCRpred <- prediction(probabilities, testdata$SeriousDlqin2yrs)
+ROCRperf <- performance(ROCRpred, 'tpr', 'fpr')
+plot(ROCRperf, colorize = TRUE, text.adj = c(-0.2, 1.7))
+```
+__We have built a generalized linear model also referred as multi linear model since we have many independent columns and have achieved an accuracy of 85% which is a good score since the curve is not too close to 45 degree angle of the curve which makes the model less accurate and to conclude that the columns considered are highly dependent on the target variable.__
+
+***
+
+__5. Conclusion and Bias__
+__We can conclude by understanding from the data that most delinquents in US credit history belong to 30-40 and 40-50 age categories based on the sample size.__
+
+__The top 14% of Debt Ratio is having NA's, 0's or 1's which can be treated as a bias and the reason could be because the data is not recorded or survey was not taken properly which is clearly called a human error. On top of it can be said that "number of days paid late" columns mutated together has most dependency on the target variable which can be a kind of bias as there would many other factors to consider an individual delinquent.__
